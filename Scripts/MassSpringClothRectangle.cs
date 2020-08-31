@@ -3,6 +3,12 @@ using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 
+public struct TwoVector3
+{
+    public Vector3 a1;
+    public Vector3 a2;
+}
+
 public class Spring
 {
     public int[] vertexIndices = new int[2];
@@ -46,6 +52,36 @@ public class Spring
         }*/
         return -force;
     }
+
+    public TwoVector3 ApplyFixedDistance(float newDistance)
+    {
+        Vector3 p1 = cloth.getVertex(vertexIndices[0]);
+        Vector3 p2 = cloth.getVertex(vertexIndices[1]);
+
+        bool p1Fixed = cloth.fixedVertices.Contains(vertexIndices[0]);
+        bool p2Fixed = cloth.fixedVertices.Contains(vertexIndices[1]);
+
+        float distance = (p1 - p2).magnitude;
+        if(distance > newDistance)
+        {
+            if(p1Fixed)
+            {
+                p2 += (p1 - p2).normalized * (distance - newDistance);
+            } else if (p2Fixed)
+            {
+                p1 += (p2 - p1).normalized * (distance - newDistance);
+            } else if(!p1Fixed && !p2Fixed)
+            {
+                p2 += (p1 - p2).normalized * (distance - newDistance) / 2;
+                p1 += (p2 - p1).normalized * (distance - newDistance) / 2;
+            }
+            
+        }
+        return new TwoVector3() { 
+            a1 = p1,
+            a2 = p2
+        };
+    }
 }
 
 [ExecuteInEditMode, RequireComponent(typeof(MeshFilter), typeof(MeshRenderer))]
@@ -75,6 +111,7 @@ public class MassSpringClothRectangle : MonoBehaviour
     public float mass = 1.0f;
     public float stiffness;
     public float damping;
+    public float criticalDeformation;
     public bool isSimulating = false;
     public bool drawNet = false;
     public bool addWind = false;
@@ -91,6 +128,7 @@ public class MassSpringClothRectangle : MonoBehaviour
     void Start()
     {
         Init();
+        Time.fixedDeltaTime = 0.005f;
     }
 
     private void OnValidate()
@@ -245,10 +283,36 @@ public class MassSpringClothRectangle : MonoBehaviour
 
                 velocities[i] += Time.deltaTime * accForce / mass;
                 vertices[i] += Time.deltaTime * velocities[i];
+
+                if (vertices[i].y < -1)
+                    vertices[i].y = -1;
             }
         }
+
+        if(criticalDeformation > 0)
+        {
+            ApplyCriticalDeformation();
+        }
+
         mesh.vertices = vertices;
         mesh.RecalculateNormals();
+    }
+
+    public void ApplyCriticalDeformation()
+    {
+        for(int i = 0; i < mesh.vertexCount; i++)
+        {
+            for (int s = 0; s < SPRINGS_PER_VERTEX; s++)
+            {
+                if (springs[i, s] != null && springs[i, s].vertexIndices[1] > springs[i, s].vertexIndices[0])
+                {
+                    float maxLength = springs[i, s].restLength*(1+criticalDeformation);
+                    TwoVector3 newPositions = springs[i, s].ApplyFixedDistance(maxLength);
+                    vertices[springs[i, s].vertexIndices[0]] = newPositions.a1;
+                    vertices[springs[i, s].vertexIndices[1]] = newPositions.a2;
+                }
+            }
+        }
     }
 
     public Vector3 getVertex(int vi)
